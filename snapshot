@@ -1,0 +1,238 @@
+#!/bin/bash
+
+#
+# `snapshot`
+#
+#  An opinionated script for managing snapshots of a working copy from/to a remote server.
+#
+#  Setup: 
+#	
+#  Create a ~/.snapshot/config file with the following variables:
+#
+#    REMOTE_USER: Your FTP username.
+#    REMOTE_PASS: Your FTP password (base64 encoded).
+#    REMOTE_HOST: Your FTP host (e.g., ftp.example.com).
+#    REMOTE_PORT: Your FTP port (default is 21).
+#    REMOTE_PATH: The path on the FTP server where snapshots will be stored.
+#
+#  Usage:
+#
+#  snapshot [pack | push | pull] [-q | --quiet]
+#
+#  pack : Packs up a clean snapshot of the current working copy as a ZIP archive, named after the current directory.
+#  push : Packs and uploads the snapshot to the remote server.
+#  pull : Downloads the currently available snapshot from the remote server and replaces the current directory's contents with it.
+#  -q, --quiet : Suppresses or reduces output messages.
+#
+
+# set -xe  # To debug commands
+set -e
+
+show_usage() {
+	printf "\e[38;5;250m%s\e[0m\n\n" "Woops! Something's not right, check the script for guidance. Usage:"
+	printf "\t%s\n\n" "snapshot [pack | push | pull] [-q | --quiet]"
+	printf "\t%s\t\t%s\n" "--pack" "Packs up a clean snapshot of the current working copy."
+	printf "\t%s\t\t%s\n" "--push" "Packs and uploads a snapshot to the remote server."
+	printf "\t%s\t\t%s\n" "--pull" "Downloads a snapshot from the remote server and replaces the current working copy with its content."
+	printf "\t%s\t%s\n\n" "-q, --quiet" "Suppresses or reduces output messages."
+	exit 1
+}
+
+# Get the current working directory name
+ROOT_DIR="$(pwd)"
+PARENT_DIR="$(dirname "$ROOT_DIR")" # The parent directory of the current working directory
+DIR_NAME="$(basename $ROOT_DIR)" # The current working directory name
+SNAPSHOT_NAME="$DIR_NAME" # ... which is used as the snapshot name
+
+# Default values
+QUIET=false
+
+CONFIG_PATH=~/.snapshot/config
+DEFAULT_CONFIG="REMOTE_HOST=
+REMOTE_PORT=
+REMOTE_USER=
+REMOTE_PASS=
+REMOTE_PATH="
+
+# Parse arguments
+ACTION=""
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	pack)
+		ACTION="pack"
+		shift
+		;;
+	push)
+		ACTION="push"
+		shift
+		;;
+	pull)
+		ACTION="pull"
+		shift
+		;;
+	-q | --quiet)
+		QUIET=true
+		shift
+		;;
+	*)
+		show_usage
+		;;
+	esac
+done
+
+# Check if an action was specified, otherwise show usage
+if [[ -z "$ACTION" ]]; then
+	show_usage
+fi
+
+# Check if the config file exists
+check_config() {
+    if [ ! -f "$CONFIG_PATH" ]; then
+        mkdir -p "$(dirname "$CONFIG_PATH")"
+        touch "$CONFIG_PATH"
+		echo "$DEFAULT_CONFIG" > "$CONFIG_PATH"
+        printf "\e[1;31m%s\e[0m \e[38;5;250m%s\e[0m\n" "Error!" "The config file $CONFIG_PATH did not exist and has been created.\n"
+        printf "Please fill it with your credentials, as described in the script header.\n\n"
+        printf "\e[3m%s\e[0m\n\n" "nano $CONFIG_PATH"
+        exit 1
+    fi
+
+    # Load the .env-style file (KEY="value" lines). Quotes are handled correctly by 'source'.
+    # shellcheck source=/dev/null
+    . "$CONFIG_PATH"
+
+    # List of required, non-empty variables
+    local required=(REMOTE_HOST REMOTE_PORT REMOTE_USER REMOTE_PASS REMOTE_PATH)
+    local missing=()
+
+    for var in "${required[@]}"; do
+        # ${!var:-} expands to empty if unset; catches both unset and empty-string
+        if [ -z "${!var:-}" ]; then
+            missing+=("$var")
+        fi
+    done
+
+    if ((${#missing[@]} > 0)); then
+        printf "\e[1;31m%s\e[0m \e[38;5;250m%s\e[0m\n" "Error!" "Missing or empty variables in $CONFIG_PATH.\n"
+		printf "Please fill it with your credentials, as described in the script header.\n"
+		printf "Missing credentials:\n"
+
+        for m in "${missing[@]}"; do
+            printf "  - %s\n" "$m"
+        done
+        exit 1
+    fi
+}
+
+
+# Helper: pack snapshot
+pack_snapshot() {
+	$QUIET || echo "Packing up snapshot..."
+	
+	# Perform `flutter clean` if relevant
+	if command -v flutter &> /dev/null; then  # Check if Flutter is installed
+		if [ -f "pubspec.yaml" ]; then # Check if the pubspec.yaml file exists
+			echo "pubspec.yaml found. Running flutter clean..."
+			flutter clean
+		fi
+	fi
+
+	echo "Zipping up archive..."
+
+	# Zip up the entire parent folder at the parent folder's level
+	cd "$PARENT_DIR"
+	zip -r -q "$SNAPSHOT_NAME.zip" "$DIR_NAME"
+	
+	# If not in quiet mode, print the archive path and reveal it in Finder
+	if [ "$QUIET" = false ]; then
+		echo "Snapshot archive is available at $PARENT_DIR/$SNAPSHOT_NAME.zip"
+		open -R "$PARENT_DIR/$SNAPSHOT_NAME.zip"
+	fi
+}
+
+# Helper: push snapshot
+push_snapshot() {
+
+	check_config
+
+	echo "Packing up snapshot..."
+
+	# Pack the snapshot
+	WAS_QUIET=$QUIET
+	QUIET=true
+	pack_snapshot
+	QUIET=$WAS_QUIET
+
+	CURRENT_DATE=$(date +%d/%m/%Y)
+	CURRENT_TIME=$(date +%H:%M:%S)
+
+	# Upload the snapshot to the FTP server
+	echo "Uploading snapshot ($CURRENT_DATE at $CURRENT_TIME)..."
+
+	source $CONFIG_PATH
+	cd ..
+
+	FILENAME="$SNAPSHOT_NAME.zip"
+	LOCAL_FILE="$PARENT_DIR/$FILENAME"
+
+	curl --insecure --tlsv1.2 --ftp-ssl-control \
+		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
+		-T "$LOCAL_FILE" \
+		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_PATH/$FILENAME"
+
+	echo "Snapshot successfully uploaded. Cleaning up..."
+
+	# Remove the local file
+	rm "$LOCAL_FILE"
+	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n" "Good to go!" "The snapshot has been uploaded successfully. Have a pleasant day!"
+}
+
+# Helper: pull snapshot
+pull_snapshot() {
+	
+	check_config
+
+	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n" "Warning!" "This is a destructive operation, hit Ctrl+C to cancel."
+
+	# Download the snapshot from the FTP server
+	source $CONFIG_PATH
+	FILENAME="$SNAPSHOT_NAME.zip"
+	# # LOCAL_DIR="$ROOT_DIR/../"
+	LOCAL_DIR="$ROOT_DIR/../"
+	# LOCAL_FILE="$LOCAL_DIR/$FILENAME"
+	
+	TEMP_DIR=$(mktemp -d)
+	TEMP_FILE="$TEMP_DIR/$FILENAME"
+
+	REMOTE_FILE="$REMOTE_PATH/$FILENAME"
+
+	CURRENT_DATE=$(date +%d/%m/%Y)
+	CURRENT_TIME=$(date +%H:%M:%S)
+
+	echo "Downloading snapshot ($CURRENT_DATE at $CURRENT_TIME)..."
+	
+	curl --insecure --tlsv1.2 --ftp-ssl-control \
+		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
+		-o "$TEMP_FILE" \
+		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_FILE"
+	
+	# Extract the downloaded snapshot
+	echo "Snapshot successfully downloaded. Cleaning working directory..."
+	find "." -mindepth 1 -maxdepth 1 ! -name ".env" -exec rm -rf {} +
+
+	echo "Extracting..."
+	unzip -o -q "$TEMP_FILE" -d "$LOCAL_DIR"
+
+	# Clean up the downloaded snapshot
+	echo "Cleaning up..."
+	rm -rf $TEMP_DIR
+	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n" "We're all set!" "When editing with VS Code, don't forget to run the \"Developer: Reload window\" command to refresh the workspace's files and extensions."
+}
+
+case "$ACTION" in
+pack) pack_snapshot ;;
+push) push_snapshot ;;
+pull) pull_snapshot ;;
+*) show_usage ;;
+esac
+
