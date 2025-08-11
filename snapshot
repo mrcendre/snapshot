@@ -192,7 +192,7 @@ pull_snapshot() {
 	
 	check_config
 
-	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n" "Warning!" "This is a destructive operation, hit Ctrl+C to cancel."
+	printf "\e[1;33m%s\e[0m \e[38;5;250m%s\e[0m\n" "Warning!" "This is a destructive operation, hit Ctrl+C to cancel."
 
 	# Download the snapshot from the FTP server
 	source $CONFIG_PATH
