@@ -31,9 +31,9 @@ set -e
 show_usage() {
 	printf "\e[38;5;250m%s\e[0m\n\n" "Woops! Something's not right, check the script for guidance. Usage:"
 	printf "\t%s\n\n" "snapshot [pack | push | pull] [-q | --quiet]"
-	printf "\t%s\t\t%s\n" "--pack" "Packs up a clean snapshot of the current working copy."
-	printf "\t%s\t\t%s\n" "--push" "Packs and uploads a snapshot to the remote server."
-	printf "\t%s\t\t%s\n" "--pull" "Downloads a snapshot from the remote server and replaces the current working copy with its content."
+	printf "\t%s\t\t%s\n" "pack" "Packs up a clean snapshot of the current working copy."
+	printf "\t%s\t\t%s\n" "push" "Packs and uploads a snapshot to the remote server."
+	printf "\t%s\t\t%s\n" "pull" "Downloads a snapshot from the remote server and replaces the current working copy with its content."
 	printf "\t%s\t%s\n\n" "-q, --quiet" "Suppresses or reduces output messages."
 	exit 1
 }
