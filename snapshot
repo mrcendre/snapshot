@@ -34,6 +34,8 @@ show_usage() {
 	printf "\t%s\t\t%s\n" "pack" "Packs up a clean snapshot of the current working copy."
 	printf "\t%s\t\t%s\n" "push" "Packs and uploads a snapshot to the remote server."
 	printf "\t%s\t\t%s\n" "pull" "Downloads a snapshot from the remote server and replaces the current working copy with its content."
+	printf "\t%s\t\t%s\n" "compare" "Compares the last modification time of both the local and remote snapshots,"
+	printf "\t\t\t%s\n"           "determining if the local snapshot is newer or older than the remote one."
 	printf "\t%s\t%s\n\n" "-q, --quiet" "Suppresses or reduces output messages."
 	exit 1
 }
@@ -68,6 +70,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	pull)
 		ACTION="pull"
+		shift
+		;;
+	compare)
+		ACTION="compare"
 		shift
 		;;
 	-q | --quiet)
@@ -124,9 +130,286 @@ check_config() {
     fi
 }
 
+#
+# Retrieves the last modification time for both the remote and local snapshots, to determine which one is newer.
+#
+compare() {
 
-# Helper: pack snapshot
-pack_snapshot() {
+	check_config
+
+	printf "\033[1;36m%s\033[0m %s\n" \
+			"Let's see!" \
+			"Comparing local and remote snapshots last modification dates."
+
+	# Download the snapshot from the FTP server
+	source $CONFIG_PATH
+	FILENAME="$SNAPSHOT_NAME.zip"
+	
+	REMOTE_FILE="$REMOTE_PATH/$FILENAME"
+
+	CURRENT_DATE=$(date +%d/%m/%Y)
+	CURRENT_TIME=$(date +%H:%M:%S)
+
+	# Check the local working copy's last modification time
+	# printf "\033[38;5;245m%s\033[0m" "Checking local working directory (may take a while for large projects)..."
+	start_timer "Checking local working directory (may take a while for large projects)..."
+	local_timestamp=$(check_local_modification_time)
+	sleep 2.2
+	stop_timer
+
+	# Check the remote server's last modification time
+	# printf "\033[38;5;245m%s\033[0m" "Checking remote snapshot..."
+	start_timer "Checking remote snapshot..."
+	remote_timestamp=$(check_remote_modification_time)
+	stop_timer
+
+	# Format the timestamps to a human-readable format
+	local formatted_local=$(format_timestamp "$local_timestamp")
+	local formatted_remote=$(format_timestamp "$remote_timestamp")
+
+	# Determine which of the remote snapshot or local copy is newer
+	remote_epoch=$(to_epoch "$remote_timestamp")
+	local_epoch=$(to_epoch "$local_timestamp")
+
+	# Initialize suffixes
+	remote_suffix=""
+	local_suffix=""
+	hint=""
+
+	if (( remote_epoch > local_epoch )); then
+		remote_suffix="(latest)"
+		outcome=$(printf "%s \e[1;32m%s\e[0m %s\n" "The" "remote snapshot is newer" "than the local working copy.")
+		hint="You may have some changes to pull, or have just pushed a snapshot."
+	elif (( remote_epoch < local_epoch )); then
+		local_suffix="(latest)"
+		outcome=$(printf "%s \e[1;32m%s\e[0m %s\n" "The" "local working copy is newer" "than the remote snapshot.")
+		hint="You are likely up to date — remember to push when you're done!"
+	else
+		outcome="Weird, both the local working copy and the remote snapshot have the same modification time..."
+		hint="That's pretty uncommon, please double check the contents to be sure!"
+	fi
+
+	#### Print the results
+	printf "\n"
+	printf "\t%-8s %-20s\n" 			    "Source" "Last modification time"
+	printf "\t%-8s %-20s\n"				    "======" "========================================"
+	printf "\t%-8s %-20s \e[1;32m%s\e[0m\n" "Remote" "$formatted_remote" "$remote_suffix"
+	printf "\t%-8s %-20s \e[1;32m%s\e[0m\n" " Local" "$formatted_local" "$local_suffix"
+	printf "\n"
+	printf "  → $outcome\n"
+	printf "    $hint\n\n"
+}
+
+#
+# Checks the remote server's last modification time for the snapshot file.
+#
+check_remote_modification_time() {
+
+	# Get current year for filling missing years
+	current_year=$(date +%Y)
+
+	# Get the directory listing from the FTPES server
+	# Note: the trailing slash in $REMOTE_PATH is important for the listing to work correctly
+	listing=$(curl --insecure --tlsv1.2 --ftp-ssl-control -s \
+		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
+		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_PATH/")
+
+	# Extract the matching file/folder line
+	line=$(printf '%s\n' "$listing" | grep -E "[[:space:]]$FILENAME\$")
+
+	# If the remote snapshot does not exists, return a splat 0 timestamp
+	# This way, the local snapshot will always appear newer.
+	if [[ -z $line ]]; then
+		echo "0000-00-00 00:00:00" >&2
+		exit 1
+	fi
+
+	# Parse the month, day, and time/year fields
+	month=$(echo "$line" | awk '{print $6}')
+	day=$(echo "$line" | awk '{print $7}')
+	time_or_year=$(echo "$line" | awk '{print $8}')
+
+	# Decide whether it's a time (contains ':') or a year
+	if [[ $time_or_year =~ : ]]; then
+		# Format: Month Day Time (no year) - we assume the current year
+		year=$current_year
+		time=$time_or_year
+	else
+		# Format: Month Day Year (no time) - we set the time to midnight
+		year=$time_or_year
+		time="00:00"
+	fi
+
+	# Format timestamp to ISO 8601, based on the OS
+	if [[ "$(uname)" == "Darwin" ]]; then
+		# macOS / BSD date syntax
+		remote_timestamp=$(date -j -f "%b %d %Y %H:%M" "$month $day $year $time" "+%Y-%m-%d %H:%M:%S")
+	else
+		# GNU date syntax (Linux)
+		remote_timestamp=$(date -d "$month $day $year $time" "+%Y-%m-%d %H:%M:%S")
+	fi
+
+	echo $remote_timestamp
+}
+
+#
+# Checks the latest local modification time in the working copy.
+#
+check_local_modification_time() {
+
+	# Pick the right stat command for the OS
+	local stat_epoch
+	if [[ "$(uname)" == "Darwin" ]]; then
+		stat_epoch='stat -f %m --'
+	else
+		stat_epoch='stat -c %Y --'
+	fi
+
+	local latest_file=""
+	local latest_m=-1
+
+	# A list of directories to exclude, where open programs such as VS Code could make unexpected changes,
+	# leading to erroneous results in the latest modification time — we only want to check the source files.
+	# This concerns Dart, Flutter, Node.js and Rust projects, but can be extended by adding folders to this list.
+	EXCLUDES=(node_modules build target .dart_tools)
+
+	# Build the find prune expression dynamically
+	prune_expr=()
+	for d in "${EXCLUDES[@]}"; do
+		prune_expr+=( -name "$d" -o )
+	done
+	# Remove trailing -o
+	unset 'prune_expr[${#prune_expr[@]}-1]'
+
+	# Loop over all files safely (null-delimited), excluding dirs in EXCLUDES
+	while IFS= read -r -d '' f; do
+		local m
+		m=$($stat_epoch "$f" 2>/dev/null) || m=0
+		[[ "$m" =~ ^[0-9]+$ ]] || m=0
+		if (( m > latest_m )); then
+			latest_m=$m
+			latest_file="$f"
+		fi
+	done < <(
+		find "." \
+			-type d \( "${prune_expr[@]}" \) -prune \
+			-o -type f -print0 2>/dev/null
+	)
+
+	# If the working copy is empty, default to a splat 0 timestamp,
+	# so the remote always appears newer.
+	if [[ -z "$latest_file" ]]; then
+		echo "0000-00-00 00:00:00" >&2
+		return 1
+	fi
+
+	# Format timestamp in UTC, picking right date syntax
+	local local_timestamp
+	if local_timestamp=$(date -u -r "$latest_m" +%Y-%m-%d\ %H:%M:%S 2>/dev/null); then
+		:
+	else
+		local_timestamp=$(date -u -d "@$latest_m" +%Y-%m-%d\ %H:%M:%S)
+	fi
+
+	echo $local_timestamp
+
+}
+
+#
+# Converts a UTC timestamp to a human-friendly string in LOCAL timezone.
+# Accepts: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DDTHH:MM:SSZ"
+#
+format_timestamp() {
+  local ts="$1"
+  local os; os="$(uname)"
+  local out_fmt="+%A %d %B %Y at %H:%M:%S (%Z)"
+  local epoch in_fmt
+
+  if [[ "$ts" == *Z ]]; then
+    in_fmt="%Y-%m-%dT%H:%M:%SZ"
+  else
+    in_fmt="%Y-%m-%d %H:%M:%S"
+  fi
+
+  if [[ "$os" == "Darwin" ]]; then
+    # Step 1: parse as UTC -> epoch
+    epoch=$(date -j -u -f "$in_fmt" "$ts" +%s 2>/dev/null) || { echo "Invalid timestamp: $ts" >&2; return 1; }
+    # Step 2: format epoch in LOCAL time
+    date -r "$epoch" "$out_fmt"
+  else
+    # GNU coreutils
+    [[ "$ts" == *Z ]] || ts="$ts UTC"   # make sure GNU date knows it's UTC
+    epoch=$(date -u -d "$ts" +%s 2>/dev/null) || { echo "Invalid timestamp: $ts" >&2; return 1; }
+    date -d "@$epoch" "$out_fmt"
+  fi
+}
+
+# 
+# Convert to epoch seconds (macOS and Linux compatible)
+#
+to_epoch() {
+    local ts="$1"
+    # Try GNU date first, then BSD/macOS date
+    date -u -d "$ts" +%s 2>/dev/null || \
+    date -u -j -f "%Y-%m-%d %H:%M:%S" "$ts" +%s
+}
+
+# Start the timer in the background; optional message
+start_timer() {
+  TIMER_MSG="${1:-Working}"
+  TIMER_STARTED_EPOCH=$(date +%s)
+  tput civis 2>/dev/null || true
+
+  (
+    # Exit cleanly when asked to stop
+    trap 'exit 0' TERM INT
+    local ticks=1
+    while :; do
+      printf "\r\033[2K\033[38;5;245m→ %s (%d sec)\033[0m" "$TIMER_MSG" "$ticks" 1>&2
+      sleep 1
+      ticks=$((ticks + 1))
+    done
+  ) &
+  TIMER_PID=$!
+
+  # Restore cursor even if script exits unexpectedly
+  trap 'stop_timer' EXIT
+}
+
+# Stop the timer
+stop_timer() {
+  [[ -n "$TIMER_PID" ]] || return 0
+
+  # Ask the loop to exit
+  kill -TERM "$TIMER_PID" 2>/dev/null || true
+
+  # Give it a moment to die; then force-kill if needed
+  for _ in 1 2 3 4 5; do
+    kill -0 "$TIMER_PID" 2>/dev/null || break
+    sleep 0.02
+  done
+  kill -KILL "$TIMER_PID" 2>/dev/null || true
+
+  # Reap it
+  wait "$TIMER_PID" 2>/dev/null || true
+  TIMER_PID=
+
+  # Print final line with total time in (0.00 sec)
+  local end_time=$(date +%s)
+  local total=$(( end_time - TIMER_STARTED_EPOCH ))
+  local seconds=$(( total % 60 ))
+  local millis=$(( (total * 10) % 10 ))
+
+  printf "\r\033[2K\033[38;5;245m✔ %s (%d sec.)\033[0m\n" "${TIMER_MSG:-Done}" "$seconds" 1>&2
+
+  tput cnorm 2>/dev/null || true
+  trap - EXIT
+}
+
+#
+# Packs up a clean snapshot of the current working copy as a ZIP archive, named after the current directory.
+#
+pack() {
 	$QUIET || echo "Packing up snapshot..."
 	
 	# Perform `flutter clean` if relevant
@@ -137,12 +420,14 @@ pack_snapshot() {
 		fi
 	fi
 
-	echo "Zipping up archive..."
-
 	# Zip up the entire parent folder at the parent folder's level
 	cd "$PARENT_DIR"
+	start_timer "Zipping up the archive"
 	zip -r -q "$SNAPSHOT_NAME.zip" "$DIR_NAME"
-	
+	stop_timer
+
+	printf "\n"
+
 	# If not in quiet mode, print the archive path and reveal it in Finder
 	if [ "$QUIET" = false ]; then
 		echo "Snapshot archive is available at $PARENT_DIR/$SNAPSHOT_NAME.zip"
@@ -150,24 +435,28 @@ pack_snapshot() {
 	fi
 }
 
-# Helper: push snapshot
-push_snapshot() {
+# 
+# Packs up the current local working copy and uploads the snapshot to the remote server.
+#
+push() {
 
 	check_config
-
-	echo "Packing up snapshot..."
-
-	# Pack the snapshot
-	WAS_QUIET=$QUIET
-	QUIET=true
-	pack_snapshot
-	QUIET=$WAS_QUIET
 
 	CURRENT_DATE=$(date +%d/%m/%Y)
 	CURRENT_TIME=$(date +%H:%M:%S)
 
 	# Upload the snapshot to the FTP server
-	echo "Uploading snapshot ($CURRENT_DATE at $CURRENT_TIME)..."
+	printf "\nPushing snapshot ($CURRENT_DATE at $CURRENT_TIME)...\n\n"
+
+	# Pack the snapshot
+	WAS_QUIET=$QUIET
+	QUIET=true
+	pack
+	QUIET=$WAS_QUIET
+
+
+	# Upload the snapshot to the FTP server
+	printf "\033[38;5;245m↑ Uploading to remote...\033[0m\n\n"
 
 	source $CONFIG_PATH
 	cd ..
@@ -175,24 +464,35 @@ push_snapshot() {
 	FILENAME="$SNAPSHOT_NAME.zip"
 	LOCAL_FILE="$PARENT_DIR/$FILENAME"
 
+	printf "\033[38;5;245m"
 	curl --insecure --tlsv1.2 --ftp-ssl-control \
 		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
 		-T "$LOCAL_FILE" \
 		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_PATH/$FILENAME"
-
-	echo "Snapshot successfully uploaded. Cleaning up..."
+	printf "\033[0m\n"
 
 	# Remove the local file
+	start_timer "Cleaning up..."
 	rm "$LOCAL_FILE"
-	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n" "Good to go!" "The snapshot has been uploaded successfully. Have a pleasant day!"
+	stop_timer
+
+	printf "\n"
+
+	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n\n" "Good to go!" "The snapshot has been uploaded successfully. Have a pleasant day!"
 }
 
-# Helper: pull snapshot
-pull_snapshot() {
+#
+# Downloads the snapshot from the remote server and replaces the current working copy with it.
+#
+pull() {
 	
 	check_config
 
-	printf "\e[1;33m%s\e[0m \e[38;5;250m%s\e[0m\n" "Warning!" "This is a destructive operation, hit Ctrl+C to cancel."
+	CURRENT_DATE=$(date +%d/%m/%Y)
+	CURRENT_TIME=$(date +%H:%M:%S)
+
+	printf "\e[1;33m%s\e[0m \e[38;5;250m%s\e[0m\n\n" "Warning!" "This is a destructive operation, hit Ctrl+C to cancel."
+	printf "Pulling snapshot ($CURRENT_DATE at $CURRENT_TIME)...\n\n"
 
 	# Download the snapshot from the FTP server
 	source $CONFIG_PATH
@@ -205,34 +505,36 @@ pull_snapshot() {
 	TEMP_FILE="$TEMP_DIR/$FILENAME"
 
 	REMOTE_FILE="$REMOTE_PATH/$FILENAME"
-
-	CURRENT_DATE=$(date +%d/%m/%Y)
-	CURRENT_TIME=$(date +%H:%M:%S)
-
-	echo "Downloading snapshot ($CURRENT_DATE at $CURRENT_TIME)..."
 	
+	printf "\033[38;5;245m↓ Downloading from remote...\n\n"
 	curl --insecure --tlsv1.2 --ftp-ssl-control \
 		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
 		-o "$TEMP_FILE" \
 		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_FILE"
+	printf "\033[0m\n"
 	
 	# Extract the downloaded snapshot
-	echo "Snapshot successfully downloaded. Cleaning working directory..."
+	start_timer "Cleaning working directory..."
 	find "." -mindepth 1 -maxdepth 1 ! -name ".env" -exec rm -rf {} +
+	stop_timer
 
-	echo "Extracting..."
+	start_timer "Extracting..."
 	unzip -o -q "$TEMP_FILE" -d "$LOCAL_DIR"
+	stop_timer
 
 	# Clean up the downloaded snapshot
-	echo "Cleaning up..."
+	start_timer "Cleaning up..."
 	rm -rf $TEMP_DIR
-	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n" "We're all set!" "When editing with VS Code, don't forget to run the \"Developer: Reload window\" command to refresh the workspace's files and extensions."
+	stop_timer
+
+	printf "\n\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n\n" "We're all set!" "When editing with VS Code, don't forget to run the \"Developer: Reload window\" command to refresh the workspace's files and extensions."
 }
 
 case "$ACTION" in
-pack) pack_snapshot ;;
-push) push_snapshot ;;
-pull) pull_snapshot ;;
+pack) pack ;;
+push) push ;;
+pull) pull ;;
+compare) compare ;;
 *) show_usage ;;
 esac
 

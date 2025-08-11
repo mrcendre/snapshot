@@ -41,11 +41,14 @@ I felt it took too long to manually zip and unzip, drag and drop using an FTP cl
 
 ## Usage
 
-`snapshot [pack | push | pull] [-q | --quiet]`
+`snapshot [compare | pack | push | pull] [-q | --quiet]`
 
 **Important**: All of these commands must be invoked from the directory you want to snapshot — ie. when in `my_project`, running these commands will assume it manages snapshot of the `my_project` directory.
 
 ### Commands
+
+- **`compare`**: Checks the last modification date for both the local working directory and the remote snapshot, and lists the differences between them. 
+  This is useful to see what has changed since the last snapshot was taken.
 
 - **`pack`**: Creates a snapshot of the current working directory. A snapshot is a ZIP archive containing the current state of the directory. 
   The snapshot is named with the directory name, and the archive's root is a directory with the same name containing the files.
@@ -111,15 +114,20 @@ snapshot pull
 
 - [ ] Add an interactive credentials provisioning flow when the tool runs for the first time.
 
-- [ ] Add FTP connection parameters such as TLS version and security protocol to the configuration file, to override the default hardcoded values.
-
 - [ ] Add a confirmation when pushing to the remote server, showing the last time the remote snapshot was updated.
 
 - [ ] Add a confirmation when pulling from the remote server, showing the last time the local snapshot was updated.
 
-- Add more options:
+- [ ] Add a diff mechanism to compare the local working directory with the remote snapshot's contents:
 
-	- [ ] `check` to print the local working directory's snapshot name, whether the remote snapshot exists, and the **last time it was updated** — both locally and remotely. This would be uselful to allow mixups when frequently pushing and pulling snapshots.
+   - [ ] List modified files (Git style).
+   - [ ] Open interactive diff with FileMerge.
+
+- [ ] Add a transactions history file in ~/.snapshot/history
+
+- [ ] Add FTP connection parameters such as TLS version and security protocol to the configuration file, to override the default hardcoded values.
+
+- Add more options:
 
 	- [ ] `--remote-subpath` to override or `--remote-path` to supplement the `REMOTE_PATH` variable in the config file, allowing to push/pull snapshots to/from a subdirectory of the remote path.
 
