@@ -43,7 +43,7 @@ show_usage() {
 # Get the current working directory name
 ROOT_DIR="$(pwd)"
 PARENT_DIR="$(dirname "$ROOT_DIR")" # The parent directory of the current working directory
-DIR_NAME="$(basename $ROOT_DIR)" # The current working directory name
+DIR_NAME="$(basename "$ROOT_DIR")" # The current working directory name
 SNAPSHOT_NAME="$DIR_NAME" # ... which is used as the snapshot name
 
 # Default values
