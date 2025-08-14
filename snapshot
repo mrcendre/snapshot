@@ -28,8 +28,38 @@
 # set -xe  # To debug commands
 set -e
 
+# Get the current working directory name
+ROOT_DIR="$(pwd)"
+PARENT_DIR="$(dirname "$ROOT_DIR")" # The parent directory of the current working directory
+DIR_NAME="$(basename "$ROOT_DIR")" # The current working directory name
+SNAPSHOT_NAME="$DIR_NAME" # ... which is used as the snapshot name
+
+# Default parameters values
+QUIET=false
+
+# Colors and styles
+ESC="\033["
+RED="${ESC}1;31m"
+GREEN="${ESC}1;32m"
+YELLOW="${ESC}1;33m"
+BLUE="${ESC}1;36m"
+GREY="${ESC}38;5;250m"
+DARK_GREY="${ESC}38;5;245m"
+ITALIC="${ESC}3m"
+ERASE_LINE="${ESC}2K"
+END_STYLE="${ESC}0m"
+
+# Configuration
+CONFIG_PATH=~/.snapshot/config
+DEFAULT_CONFIG="REMOTE_HOST=
+REMOTE_PORT=
+REMOTE_USER=
+REMOTE_PASS=
+REMOTE_PATH="
+
+# Shows the command's usage information
 show_usage() {
-	printf "\e[38;5;250m%s\e[0m\n\n" "Woops! Something's not right, check the script for guidance. Usage:"
+	printf "$GREY%s$END_STYLE\n\n" "Woops! Something's not right, check the script for guidance. Usage:"
 	printf "\t%s\n\n" "snapshot [pack | push | pull] [-q | --quiet]"
 	printf "\t%s\t\t%s\n" "pack" "Packs up a clean snapshot of the current working copy."
 	printf "\t%s\t\t%s\n" "push" "Packs and uploads a snapshot to the remote server."
@@ -39,22 +69,6 @@ show_usage() {
 	printf "\t%s\t%s\n\n" "-q, --quiet" "Suppresses or reduces output messages."
 	exit 1
 }
-
-# Get the current working directory name
-ROOT_DIR="$(pwd)"
-PARENT_DIR="$(dirname "$ROOT_DIR")" # The parent directory of the current working directory
-DIR_NAME="$(basename "$ROOT_DIR")" # The current working directory name
-SNAPSHOT_NAME="$DIR_NAME" # ... which is used as the snapshot name
-
-# Default values
-QUIET=false
-
-CONFIG_PATH=~/.snapshot/config
-DEFAULT_CONFIG="REMOTE_HOST=
-REMOTE_PORT=
-REMOTE_USER=
-REMOTE_PASS=
-REMOTE_PATH="
 
 # Parse arguments
 ACTION=""
@@ -97,14 +111,13 @@ check_config() {
         mkdir -p "$(dirname "$CONFIG_PATH")"
         touch "$CONFIG_PATH"
 		echo "$DEFAULT_CONFIG" > "$CONFIG_PATH"
-        printf "\e[1;31m%s\e[0m \e[38;5;250m%s\e[0m\n" "Error!" "The config file $CONFIG_PATH did not exist and has been created.\n"
+        printf "$RED%s$END_STYLE $GREY%s$END_STYLE\n" "Error!" "The config file $CONFIG_PATH did not exist and has been created."
         printf "Please fill it with your credentials, as described in the script header.\n\n"
-        printf "\e[3m%s\e[0m\n\n" "nano $CONFIG_PATH"
+        printf "$ITALIC%s$END_STYLE\n\n" "nano $CONFIG_PATH"
         exit 1
     fi
 
     # Load the .env-style file (KEY="value" lines). Quotes are handled correctly by 'source'.
-    # shellcheck source=/dev/null
     . "$CONFIG_PATH"
 
     # List of required, non-empty variables
@@ -119,7 +132,7 @@ check_config() {
     done
 
     if ((${#missing[@]} > 0)); then
-        printf "\e[1;31m%s\e[0m \e[38;5;250m%s\e[0m\n" "Error!" "Missing or empty variables in $CONFIG_PATH.\n"
+        printf "$RED%s$END_STYLE $GREY%s$END_STYLE\n" "Error!" "Missing or empty variables in $CONFIG_PATH."
 		printf "Please fill it with your credentials, as described in the script header.\n"
 		printf "Missing credentials:\n"
 
@@ -137,7 +150,7 @@ compare() {
 
 	check_config
 
-	printf "\033[1;36m%s\033[0m %s\n" \
+	printf "$BLUE%s$END_STYLE %s\n" \
 			"Let's see!" \
 			"Comparing local and remote snapshots last modification dates."
 
@@ -151,38 +164,50 @@ compare() {
 	CURRENT_TIME=$(date +%H:%M:%S)
 
 	# Check the local working copy's last modification time
-	# printf "\033[38;5;245m%s\033[0m" "Checking local working directory (may take a while for large projects)..."
 	start_timer "Checking local working directory (may take a while for large projects)..."
 	local_timestamp=$(check_local_modification_time)
 	sleep 2.2
 	stop_timer
 
 	# Check the remote server's last modification time
-	# printf "\033[38;5;245m%s\033[0m" "Checking remote snapshot..."
 	start_timer "Checking remote snapshot..."
 	remote_timestamp=$(check_remote_modification_time)
 	stop_timer
 
 	# Format the timestamps to a human-readable format
-	local formatted_local=$(format_timestamp "$local_timestamp")
-	local formatted_remote=$(format_timestamp "$remote_timestamp")
+	local formatted_local=""
+	local formatted_remote=""
 
 	# Determine which of the remote snapshot or local copy is newer
-	remote_epoch=$(to_epoch "$remote_timestamp")
-	local_epoch=$(to_epoch "$local_timestamp")
+	if [ -n "$local_timestamp" ]; then
+		formatted_local=$(format_timestamp "$local_timestamp")
+		local_epoch=$(to_epoch "$local_timestamp")
+	fi
 
+	if [ -n "$remote_timestamp" ]; then
+		formatted_remote=$(format_timestamp "$remote_timestamp")
+		remote_epoch=$(to_epoch "$remote_timestamp")
+	fi
+
+	
 	# Initialize suffixes
 	remote_suffix=""
 	local_suffix=""
 	hint=""
 
+	# If the remote snapshot doesn't exist, print a custom message
+	if [ -z "$remote_timestamp" ]; then
+		printf "%s $YELLOW%s$END_STYLE %s\n" "The" "remote snapshot $REMOTE_PATH/$FILENAME does not exist."
+		exit 1
+	fi
+
 	if (( remote_epoch > local_epoch )); then
 		remote_suffix="(latest)"
-		outcome=$(printf "%s \e[1;32m%s\e[0m %s\n" "The" "remote snapshot is newer" "than the local working copy.")
+		outcome=$(printf "%s $YELLOW%s$END_STYLE %s\n" "The" "remote snapshot is newer" "than the local working copy.")
 		hint="You may have some changes to pull, or have just pushed a snapshot."
 	elif (( remote_epoch < local_epoch )); then
 		local_suffix="(latest)"
-		outcome=$(printf "%s \e[1;32m%s\e[0m %s\n" "The" "local working copy is newer" "than the remote snapshot.")
+		outcome=$(printf "%s $YELLOW%s$END_STYLE %s\n" "The" "local working copy is newer" "than the remote snapshot.")
 		hint="You are likely up to date — remember to push when you're done!"
 	else
 		outcome="Weird, both the local working copy and the remote snapshot have the same modification time..."
@@ -191,10 +216,10 @@ compare() {
 
 	#### Print the results
 	printf "\n"
-	printf "\t%-8s %-20s\n" 			    "Source" "Last modification time"
-	printf "\t%-8s %-20s\n"				    "======" "========================================"
-	printf "\t%-8s %-20s \e[1;32m%s\e[0m\n" "Remote" "$formatted_remote" "$remote_suffix"
-	printf "\t%-8s %-20s \e[1;32m%s\e[0m\n" " Local" "$formatted_local" "$local_suffix"
+	printf "\t%-8s %-20s\n" 			       "Source" "Last modification time"
+	printf "\t%-8s %-20s\n"				       "======" "========================================"
+	printf "\t%-8s %-20s $GREEN%s$END_STYLE\n" "Remote" "$formatted_remote" "$remote_suffix"
+	printf "\t%-8s %-20s $GREEN%s$END_STYLE\n" " Local" "$formatted_local" "$local_suffix"
 	printf "\n"
 	printf "  → $outcome\n"
 	printf "    $hint\n\n"
@@ -220,8 +245,7 @@ check_remote_modification_time() {
 	# If the remote snapshot does not exists, return a splat 0 timestamp
 	# This way, the local snapshot will always appear newer.
 	if [[ -z $line ]]; then
-		echo "0000-00-00 00:00:00" >&2
-		exit 1
+		return
 	fi
 
 	# Parse the month, day, and time/year fields
@@ -299,8 +323,7 @@ check_local_modification_time() {
 	# If the working copy is empty, default to a splat 0 timestamp,
 	# so the remote always appears newer.
 	if [[ -z "$latest_file" ]]; then
-		echo "0000-00-00 00:00:00" >&2
-		return 1
+		return
 	fi
 
 	# Format timestamp in UTC, picking right date syntax
@@ -365,7 +388,10 @@ start_timer() {
     trap 'exit 0' TERM INT
     local ticks=1
     while :; do
-      printf "\r\033[2K\033[38;5;245m→ %s (%d sec)\033[0m" "$TIMER_MSG" "$ticks" 1>&2
+      printf "\r${ERASE_LINE}${DARK_GREY}→ %s (%d sec)$END_STYLE" "$TIMER_MSG" "$ticks" 1>&2
+
+      #printf "\r$ERASE_LINE $DARK_GREY→ %s (%d sec)$END_STYLE" "$TIMER_MSG" "$ticks" 1>&2
+
       sleep 1
       ticks=$((ticks + 1))
     done
@@ -400,7 +426,7 @@ stop_timer() {
   local seconds=$(( total % 60 ))
   local millis=$(( (total * 10) % 10 ))
 
-  printf "\r\033[2K\033[38;5;245m✔ %s (%d sec.)\033[0m\n" "${TIMER_MSG:-Done}" "$seconds" 1>&2
+  printf "\r${ERASE_LINE}${DARK_GREY}✔ %s (%d sec.)$END_STYLE\n" "${TIMER_MSG:-Done}" "$seconds" 1>&2
 
   tput cnorm 2>/dev/null || true
   trap - EXIT
@@ -415,8 +441,9 @@ pack() {
 	# Perform `flutter clean` if relevant
 	if command -v flutter &> /dev/null; then  # Check if Flutter is installed
 		if [ -f "pubspec.yaml" ]; then # Check if the pubspec.yaml file exists
-			echo "pubspec.yaml found. Running flutter clean..."
+			start_timer "Flutter project detected, cleaning..."
 			flutter clean
+			stop_timer
 		fi
 	fi
 
@@ -456,7 +483,7 @@ push() {
 
 
 	# Upload the snapshot to the FTP server
-	printf "\033[38;5;245m↑ Uploading to remote...\033[0m\n\n"
+	printf "${DARK_GREY}↑ Uploading to remote...$END_STYLE\n\n"
 
 	source $CONFIG_PATH
 	cd ..
@@ -465,12 +492,12 @@ push() {
 	URL_SAFE_FILENAME=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$FILENAME")
 	LOCAL_FILE="$PARENT_DIR/$FILENAME"
 
-	printf "\033[38;5;245m"
+	printf "$DARK_GREY"
 	curl --insecure --tlsv1.2 --ftp-ssl-control \
 		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
 		-T "$LOCAL_FILE" \
 		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_PATH/$URL_SAFE_FILENAME"
-	printf "\033[0m\n"
+	printf "$END_STYLE\n"
 
 	# Remove the local file
 	start_timer "Cleaning up..."
@@ -479,7 +506,7 @@ push() {
 
 	printf "\n"
 
-	printf "\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n\n" "Good to go!" "The snapshot has been uploaded successfully. Have a pleasant day!"
+	printf "$YELLOW%s$END_STYLE $GREY%s$END_STYLE\n\n" "Good to go!" "The snapshot has been uploaded successfully. Have a pleasant day!"
 }
 
 #
@@ -492,7 +519,7 @@ pull() {
 	CURRENT_DATE=$(date +%d/%m/%Y)
 	CURRENT_TIME=$(date +%H:%M:%S)
 
-	printf "\e[1;33m%s\e[0m \e[38;5;250m%s\e[0m\n\n" "Warning!" "This is a destructive operation, hit Ctrl+C to cancel."
+	printf "$YELLOW%s$END_STYLE $GREY%s$END_STYLE\n\n" "Warning!" "This is a destructive operation, hit Ctrl+C to cancel."
 	printf "Pulling snapshot ($CURRENT_DATE at $CURRENT_TIME)...\n\n"
 
 	# Download the snapshot from the FTP server
@@ -507,12 +534,12 @@ pull() {
 
 	REMOTE_FILE="$REMOTE_PATH/$URL_SAFE_FILENAME"
 	
-	printf "\033[38;5;245m↓ Downloading from remote...\n\n"
+	printf "${DARK_GREY}↓ Downloading from remote...\n\n"
 	curl --insecure --tlsv1.2 --ftp-ssl-control \
 		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
 		-o "$TEMP_FILE" \
 		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_FILE"
-	printf "\033[0m\n"
+	printf "$END_STYLE\n"
 	
 	# Extract the downloaded snapshot
 	start_timer "Cleaning working directory..."
@@ -528,7 +555,9 @@ pull() {
 	rm -rf $TEMP_DIR
 	stop_timer
 
-	printf "\n\e[1;32m%s\e[0m \e[38;5;250m%s\e[0m\n\n" "We're all set!" "When editing with VS Code, don't forget to run the \"Developer: Reload window\" command to refresh the workspace's files and extensions."
+	printf "\n$YELLOW%s$END_STYLE $GREY%s$END_STYLE\n\n" \
+		   "We're all set!" \
+		   "When editing with VS Code, don't forget to run the \"Developer: Reload window\" command to refresh the workspace's files and extensions."
 }
 
 case "$ACTION" in
