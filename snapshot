@@ -462,13 +462,14 @@ push() {
 	cd ..
 
 	FILENAME="$SNAPSHOT_NAME.zip"
+	URL_SAFE_FILENAME=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$FILENAME")
 	LOCAL_FILE="$PARENT_DIR/$FILENAME"
 
 	printf "\033[38;5;245m"
 	curl --insecure --tlsv1.2 --ftp-ssl-control \
 		--user "$REMOTE_USER:$(echo "$REMOTE_PASS" | base64 --decode)" \
 		-T "$LOCAL_FILE" \
-		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_PATH/$FILENAME"
+		"ftp://$REMOTE_HOST:$REMOTE_PORT/$REMOTE_PATH/$URL_SAFE_FILENAME"
 	printf "\033[0m\n"
 
 	# Remove the local file
@@ -497,14 +498,14 @@ pull() {
 	# Download the snapshot from the FTP server
 	source $CONFIG_PATH
 	FILENAME="$SNAPSHOT_NAME.zip"
-	# # LOCAL_DIR="$ROOT_DIR/../"
+	URL_SAFE_FILENAME=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$FILENAME")
+
 	LOCAL_DIR="$ROOT_DIR/../"
-	# LOCAL_FILE="$LOCAL_DIR/$FILENAME"
 	
 	TEMP_DIR=$(mktemp -d)
 	TEMP_FILE="$TEMP_DIR/$FILENAME"
 
-	REMOTE_FILE="$REMOTE_PATH/$FILENAME"
+	REMOTE_FILE="$REMOTE_PATH/$URL_SAFE_FILENAME"
 	
 	printf "\033[38;5;245m↓ Downloading from remote...\n\n"
 	curl --insecure --tlsv1.2 --ftp-ssl-control \
