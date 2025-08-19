@@ -506,7 +506,7 @@ push() {
 
 	printf "\n"
 
-	printf "$YELLOW%s$END_STYLE $GREY%s$END_STYLE\n\n" "Good to go!" "The snapshot has been uploaded successfully. Have a pleasant day!"
+	printf "$GREEN%s$END_STYLE $GREY%s$END_STYLE\n\n" "Good to go!" "The snapshot has been uploaded successfully. Have a pleasant day!"
 }
 
 #
@@ -555,7 +555,7 @@ pull() {
 	rm -rf $TEMP_DIR
 	stop_timer
 
-	printf "\n$YELLOW%s$END_STYLE $GREY%s$END_STYLE\n\n" \
+	printf "\n$GREEN%s$END_STYLE $GREY%s$END_STYLE\n\n" \
 		   "We're all set!" \
 		   "When editing with VS Code, don't forget to run the \"Developer: Reload window\" command to refresh the workspace's files and extensions."
 }
