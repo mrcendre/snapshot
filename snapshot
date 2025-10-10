@@ -42,7 +42,7 @@ QUIET=false
 # Colors and styles
 ESC="\033["
 RED="${ESC}1;31m"
-GREEN="${ESC}1;32m"
+GREEN="${ESC}1;38;2;0;255;0m"
 YELLOW="${ESC}1;33m"
 BLUE="${ESC}1;36m"
 GREY="${ESC}38;5;250m"
@@ -160,7 +160,7 @@ compare() {
 
 	check_config
 
-	printf "$BLUE%s$END_STYLE %s\n" \
+	printf "$GREEN%s$END_STYLE %s\n" \
 			"Let's see!" \
 			"Comparing local and remote snapshots last modification dates."
 
@@ -218,7 +218,7 @@ compare() {
 	elif (( remote_epoch < local_epoch )); then
 		local_suffix="(latest)"
 		outcome=$(printf "%s $YELLOW%s$END_STYLE %s\n" "The" "local working copy is newer" "than the remote snapshot.")
-		hint="You are likely up to date — remember to push when you're done!"
+		hint="You are likely up to date or ahead — remember to push when you're done!"
 	else
 		outcome="Weird, both the local working copy and the remote snapshot have the same modification time..."
 		hint="That's pretty uncommon, please double check the contents to be sure!"
