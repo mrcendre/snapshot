@@ -41,14 +41,11 @@ I felt it took too long to manually zip and unzip, drag and drop using an FTP cl
 
 ## Usage
 
-`snapshot [compare | pack | push | pull] [-q | --quiet]`
+`snapshot [pack | push | pull | compare | history] [-q | --quiet]`
 
 **Important**: All of these commands must be invoked from the directory you want to snapshot — ie. when in `my_project`, running these commands will assume it manages snapshot of the `my_project` directory.
 
 ### Commands
-
-- **`compare`**: Checks the last modification date for both the local working directory and the remote snapshot, and lists the differences between them. 
-  This is useful to see what has changed since the last snapshot was taken.
 
 - **`pack`**: Creates a snapshot of the current working directory. A snapshot is a ZIP archive containing the current state of the directory. 
   The snapshot is named with the directory name, and the archive's root is a directory with the same name containing the files.
@@ -58,6 +55,14 @@ I felt it took too long to manually zip and unzip, drag and drop using an FTP cl
 - **`pull`**: Downloads the latest snapshot from the remote FTP server to the current working directory, and replaces the current contents with the snapshot's contents. 
   
   **Note**: If the local directory is not empty, it will be replaced with the snapshot's contents, so make sure to back up any important files before running this command.
+
+- **`compare`**: Checks the last modification date for both the local working directory and the remote snapshot, and lists the differences between them. 
+  This is useful to see what has changed since the last snapshot was taken.
+
+- **`history`**: Displays the server's copy of the history of all operations performed by the `snapshot` tool, including timestamps and status.
+  When in doubt, it allows to get informations about the operation type (push or pull), the exact size of the snapshot, and the path where it was pushed/pulled.
+  If multiple machines interact with the same remote server, this history will include operations from all of them, which is why the hostname is also included in each entry.
+  
 
 - **`-q` or `--quiet`**: Suppresses or reduces output messages, useful for scripting or when you don't need detailed feedback.
 
