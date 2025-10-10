@@ -447,6 +447,13 @@ pack() {
 		fi
 	fi
 
+	# Perform Node.js cleanup if relevant
+	if [ -f "package.json" ]; then # Check if the package.json file exists
+		start_timer "Node.js project detected, cleaning..."
+		rm -rf node_modules dist build .next
+		stop_timer
+	fi
+
 	# Zip up the entire parent folder at the parent folder's level
 	cd "$PARENT_DIR"
 	start_timer "Zipping up the archive"
