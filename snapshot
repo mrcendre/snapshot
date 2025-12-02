@@ -471,24 +471,26 @@ pack() {
 	$QUIET || echo "Packing up snapshot..."
 	
 	# Perform `flutter clean` in the directory if relevant
-	if command -v flutter &> /dev/null; then  # Check if Flutter is installed
+	# Check if Flutter is installed
+	if command -v flutter &> /dev/null; then 
 		if [ -f "pubspec.yaml" ]; then # Check if the pubspec.yaml file exists
 			start_timer "Flutter project detected, cleaning..."
 			flutter clean
 			stop_timer
 		fi
+
+		# Check every subdirectory for monorepo-style Flutter projects
+		for dir in */ ; do
+			if [ -f "$dir/pubspec.yaml" ]; then
+				start_timer "Cleaning Flutter project in '$dir'..."
+				( cd "$dir" && flutter clean )
+				stop_timer
+			fi
+		done
 	fi
 
-	# Check every subdirectory for monorepo-style Flutter projects
-	for dir in */ ; do
-		if [ -f "$dir/pubspec.yaml" ]; then
-			start_timer "Cleaning Flutter project in '$dir'..."
-			( cd "$dir" && flutter clean )
-			stop_timer
-		fi
-	done
-
 	# Perform Node.js cleanup if relevant
+	# Note: this cleanup is a bit more agressive than just `npm clean`, as it removes build artifacts too.
 	if [ -f "package.json" ]; then # Check if the package.json file exists
 		start_timer "Node.js project detected, cleaning..."
 		rm -rf node_modules dist build .next
@@ -496,10 +498,13 @@ pack() {
 	fi
 
 	# Perform Rust cleanup if relevant
-	if [ -f "Cargo.toml" ]; then # Check if the Cargo.toml file
-		start_timer "Rust project detected, cleaning..."
-		cargo clean
-		stop_timer
+	# Check if cargo is installed
+	if command -v cargo &> /dev/null; then
+		if [ -f "Cargo.toml" ]; then # Check if the Cargo.toml file
+			start_timer "Rust project detected, cleaning..."
+			cargo clean
+			stop_timer
+		fi
 	fi
 
 	# Zip up the entire parent folder at the parent folder's level

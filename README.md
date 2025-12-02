@@ -1,6 +1,6 @@
 # `snapshot`
 
-*An opinionated, bare-metal Bash tool to synchronize working directory snapshots with a remote FTPES server.*
+*A very opinionated, bare-metal Bash tool to synchronize snapshots of directories with a remote FTPES server.*
 
 Designed for macOS and UNIX distributions, it provides a straightforward way to create, upload, and download snapshots of any working directory with minimal hassle.
 
@@ -15,11 +15,11 @@ Just `cd` into the directory you want to snapshot, and run `snapshot push` or `s
 - Human-friendly info and error messages.
 - Configure it once and use it anywhere.
 
->**Bonus**: When the tool detects that the directory is a Flutter project, and if the `flutter` command is available, it automatically runs `flutter clean` before packing the snapshot. This ensures that snapshots of such projects are free of unnecessary build artifacts, to optimize storage space and network transfer.
+>**Bonus**: When `snapshot` detects that the directory is a Flutter, Node.js or Rust project, and if the appropriate commands are available, it automatically runs the stack-specific cleanup before packing the snapshot. This ensures that snapshots of such projects are free of unnecessary build artifacts, to optimize storage space and network transfer.
 
 ### Why?
 
-The initial motiviation for this tool was to *avoid committing ugly work-in-progress code to Git*, especially when working on multiple machines simultaneously. It allows to quickly snapshot your current working directory and push it to a remote server, ensuring you can always retrieve your latest work without cluttering your Git history — **all in a few seconds**.
+The initial motivation for this tool was to *avoid committing ugly work-in-progress code to Git*, especially when working on multiple machines simultaneously. It allows to quickly snapshot your current working directory and push it to a remote server, ensuring you can always retrieve your latest work without cluttering your Git history — **all in a few seconds, and with a two-words command**.
 
 However, this tool is useful in many other power-user scenarios, such as:
 
@@ -27,17 +27,6 @@ However, this tool is useful in many other power-user scenarios, such as:
 - **Avoid relying on cloud services** to keep stuff synchronized across devices.
 - **Archiving projects** before making significant changes.
 - **Archiving old projects** to free up space on your local machine.
-
-<details>
-
-<summary>Want a little anecdote?</summary>
-
-At first, it was a simple script embedded in every project, with the same configuration file duplicated all over the place. 
-
-But as more projects were created, it became cumbersome to maintain. This motivated the decision to extract it into a standalone tool.
-
-I felt it took too long to manually zip and unzip, drag and drop using an FTP client or a cloud service UI to synchronize directories across devices. It's much faster and efficient to just run a one-liner in the terminal, and this tool makes it easy to do so.
-</details>
 
 ## Usage
 
