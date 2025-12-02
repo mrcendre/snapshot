@@ -486,6 +486,13 @@ pack() {
 		stop_timer
 	fi
 
+	# Perform Rust cleanup if relevant
+	if [ -f "Cargo.toml" ]; then # Check if the Cargo.toml file
+		start_timer "Rust project detected, cleaning..."
+		cargo clean
+		stop_timer
+	fi
+
 	# Zip up the entire parent folder at the parent folder's level
 	cd "$PARENT_DIR"
 	start_timer "Zipping up the archive"
